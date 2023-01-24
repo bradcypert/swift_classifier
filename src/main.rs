@@ -4,23 +4,49 @@ use std::io::Read;
 extern crate regex;
 use regex::Regex;
 
-struct Classifier {
+pub trait Classifier {
+  fn train(&mut self, file_name: &str) -> std::io::Result<()>;
+  fn classify(&self, input: &str) -> String;
+}
+
+struct NaiveBayesClassifier {
     pub tokens: HashSet<String>,
     pub tokens_country: HashMap<String, i32>,
     pub tokens_pop: HashMap<String, i32>,
 }
 
-impl Classifier {
-
-    pub fn new() -> Classifier {
-        Classifier {
+impl NaiveBayesClassifier {
+    pub fn new() -> NaiveBayesClassifier {
+        NaiveBayesClassifier {
             tokens: HashSet::new(),
             tokens_country: HashMap::new(),
             tokens_pop: HashMap::new(),
         }                               
     }
 
-    pub fn train(&mut self, file_name: &str) -> std::io::Result<()> {
+    fn prob_of_tokens(&self, tokens: Vec<String>) -> (f64, f64) {    
+        let total_words_pop = self.tokens_pop.iter().count() as f64;
+        let total_words_country = self.tokens_country.iter().count() as f64;
+        let total_unique_words = total_words_country + total_words_pop;
+
+        let mut word_is_pop = 1f64;
+        let mut word_is_country = 1f64;
+
+        for token in tokens.iter() {
+            let token_pop_count = self.tokens_pop.get(token).unwrap_or(&0);
+            let token_country_count = self.tokens_country.get(token).unwrap_or(&0);
+
+            word_is_pop *= (token_pop_count+1) as f64 / (total_words_pop + total_unique_words);
+            word_is_country *= (token_country_count+1) as f64 / (total_words_country + total_unique_words);
+        }
+
+        (word_is_pop, word_is_country)
+    }
+
+}
+
+impl Classifier for NaiveBayesClassifier {
+    fn train(&mut self, file_name: &str) -> std::io::Result<()> {
         let file = File::open(file_name);
 
         match file {
@@ -44,7 +70,7 @@ impl Classifier {
         }
     }
 
-    pub fn predict(&self, input: &str) -> String {
+    fn classify(&self, input: &str) -> String {
         let lower_input = input.to_lowercase();
         let input_tokens = tokenize(&lower_input);
         let (prob_pop, prob_country) = self.prob_of_tokens(input_tokens);
@@ -60,26 +86,6 @@ impl Classifier {
             "Pop".to_string()
         }
     }
-
-    fn prob_of_tokens(&self, tokens: Vec<String>) -> (f64, f64) {
-       
-        let total_words_pop = self.tokens_pop.iter().count() as f64;
-        let total_words_country = self.tokens_country.iter().count() as f64;
-        let total_unique_words = total_words_country + total_words_pop;
-
-        let mut word_is_pop = 1f64;
-        let mut word_is_country = 1f64;
-
-        for token in tokens.iter() {
-            let token_pop_count = self.tokens_pop.get(token).unwrap_or(&0);
-            let token_country_count = self.tokens_country.get(token).unwrap_or(&0);
-
-            word_is_pop *= (token_pop_count+1) as f64 / (total_words_pop + total_unique_words);
-            word_is_country *= (token_country_count+1) as f64 / (total_words_country + total_unique_words);
-        }
-
-        (word_is_pop, word_is_country)
-    }
 }
 
 fn tokenize(input: &str) -> Vec<String> {
@@ -92,15 +98,19 @@ fn tokenize(input: &str) -> Vec<String> {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut classifier = Classifier::new(); 
+    let mut classifier = NaiveBayesClassifier::new(); 
     classifier.train("./src/swift_country.txt")?;
     classifier.train("./src/swift_pop.txt")?;
 
     // Garth Brooks
-    println!("{}", classifier.predict("Blame it all on my roots, I showed up in boots And ruined your black tie affair. The last one to know, the last one to show. I was the last one you thought you'd see there"));
+    println!("{}", classifier.classify("Blame it all on my roots, I showed up in boots And ruined your black tie affair. The last one to know, the last one to show. I was the last one you thought you'd see there"));
 
     // Taylor Swift
-    println!("{}", classifier.predict("I wanna be your end game. I wanna be your first string. I wanna be your A-Team. I wanna be your end game, end game"));
+    println!("{}", classifier.classify("I wanna be your end game. I wanna be your first string. I wanna be your A-Team. I wanna be your end game, end game"));
+
+    println!("{}", classifier.classify("When I was a young boy, my father took me into the city to see a marching band. He said son when you grow up will you be the savior of the broken, the beaten and the damned."));
+
+    println!("{}", classifier.classify("Oh say can you see by the dawns early light what so proudly we hailed at the twilight's last gleaming. Who's broad stripes and bright stars."));
 
     Ok(())
 }
